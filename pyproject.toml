@@ -1,19 +1,35 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
 [project]
 name = "traffic-signal-env"
-version = "0.1.0"
-description = "Traffic Signal Control OpenEnv Project"
-authors = [
-    { name = "Radhika Mishra" }
-]
+version = "1.0.0"
+description = "Real-world traffic signal control environment for OpenEnv"
 readme = "README.md"
 requires-python = ">=3.11"
+license = {text = "MIT"}
+keywords = ["openenv", "reinforcement-learning", "traffic", "urban-mobility"]
 dependencies = [
-    "fastapi>=0.95.0",
-    "uvicorn>=0.22.0",
-    "numpy",
-    "pandas"
+    "fastapi>=0.115.5",
+    "uvicorn[standard]>=0.32.1",
+    "pydantic>=2.10.3",
+    "requests>=2.32.3",
+    "openai>=1.57.0",
 ]
 
-[build-system]
-requires = ["setuptools", "wheel"]
-build-backend = "setuptools.build_meta"
+[project.optional-dependencies]
+dev = ["pytest", "httpx"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.openenv]
+name = "traffic-signal-control"
+version = "1.0.0"
+entry_point = "app:app"
+tasks = [
+    "single_intersection_easy",
+    "arterial_corridor_medium",
+    "urban_grid_hard",
+]
