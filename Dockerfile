@@ -3,21 +3,18 @@ FROM python:3.11-slim
 LABEL description="Traffic Signal Control — OpenEnv Environment"
 LABEL version="1.0.0"
 
-RUN apt-get update && apt-get install -y --no-install-recommends curl git \
+RUN apt-get update && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Install openenv-core from PyPI or github
-RUN pip install --no-cache-dir openenv-core || \
-    pip install --no-cache-dir git+https://github.com/meta-pytorch/OpenEnv.git || \
-    echo "openenv-core not available, continuing without it"
-
 COPY src/ ./src/
 COPY server/ ./server/
+COPY requirements.txt .
+
+RUN pip install --no-cache-dir -r requirements.txt && \
+    pip install --no-cache-dir openenv-core || true
+
 COPY app.py .
 COPY openenv.yaml .
 COPY inference.py .
