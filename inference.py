@@ -1,38 +1,21 @@
 #!/usr/bin/env python3
 """
 Traffic Signal Control — OpenEnv Inference Script
-
-Runs an LLM-based agent against all 3 tasks and reports scores.
-Uses OpenAI client with configurable API_BASE_URL, MODEL_NAME, HF_TOKEN.
-
-Emits structured stdout logs in [START] / [STEP] / [END] format.
-
-Usage:
-    python inference.py
-
-Environment Variables:
-    API_BASE_URL   - LLM API endpoint (default: https://api.openai.com/v1)
-    MODEL_NAME     - Model identifier (default: gpt-4o-mini)
-    HF_TOKEN       - API key (also accepts OPENAI_API_KEY)
-    TRAFFIC_HOST   - Environment host (default: http://localhost:8000)
+Emits structured [START] / [STEP] / [END] logs.
 """
 
 import json
 import os
 import sys
 import time
-import random
 import requests
-from typing import Any, Dict, List, Optional
-
-from openai import OpenAI
 
 # ─── Configuration ────────────────────────────────────────────────────────────
 
-API_BASE_URL = os.environ.get("API_BASE_URL", "https://api.openai.com/v1")
-MODEL_NAME   = os.environ.get("MODEL_NAME", "gpt-4o-mini")
-HF_TOKEN     = os.environ.get("HF_TOKEN") or os.environ.get("OPENAI_API_KEY", "")
-TRAFFIC_HOST = os.environ.get("TRAFFIC_HOST", "http://localhost:8000")
+API_BASE_URL  = os.environ.get("API_BASE_URL", "https://api.openai.com/v1")
+MODEL_NAME    = os.environ.get("MODEL_NAME", "gpt-4o-mini")
+HF_TOKEN      = os.environ.get("HF_TOKEN") or os.environ.get("OPENAI_API_KEY", "")
+TRAFFIC_HOST  = os.environ.get("TRAFFIC_HOST", "https://radhikamishra-traffic-signal-env.hf.space")
 
 TASKS = [
     "single_intersection_easy",
@@ -43,282 +26,221 @@ TASKS = [
 TASK_MAX_STEPS = {
     "single_intersection_easy": 100,
     "arterial_corridor_medium": 150,
-    "urban_grid_hard": 200,
+    "urban_grid_hard":          200,
 }
 
-# ─── OpenAI Client ────────────────────────────────────────────────────────────
+# ─── Logging ──────────────────────────────────────────────────────────────────
 
-client = OpenAI(api_key=HF_TOKEN, base_url=API_BASE_URL)
+def log(obj):
+    print(json.dumps(obj), flush=True)
 
+def log_start(task_id):
+    log({"type": "START", "task_id": task_id, "model": MODEL_NAME, "timestamp": time.time()})
 
-# ─── Environment Client ───────────────────────────────────────────────────────
+def log_step(task_id, step, reward, done, action, info):
+    log({"type": "STEP", "task_id": task_id, "step": step,
+         "reward": reward, "done": done, "action": action, "info": info})
 
-def env_reset(task_id: str) -> Dict[str, Any]:
-    resp = requests.post(f"{TRAFFIC_HOST}/reset", json={"task_id": task_id}, timeout=30)
-    resp.raise_for_status()
-    return resp.json()
+def log_end(task_id, total_reward, final_score, steps, elapsed):
+    log({"type": "END", "task_id": task_id,
+         "total_reward": round(total_reward, 4),
+         "final_score":  round(final_score, 4),
+         "steps": steps, "elapsed_seconds": round(elapsed, 2)})
 
-def env_step(phase_assignments: Dict[str, int], task_id: str) -> Dict[str, Any]:
-    resp = requests.post(
-        f"{TRAFFIC_HOST}/step",
-        json={"phase_assignments": phase_assignments, "task_id": task_id},
-        timeout=30,
-    )
-    resp.raise_for_status()
-    return resp.json()
+# ─── Environment HTTP calls ───────────────────────────────────────────────────
 
-def env_state() -> Dict[str, Any]:
-    resp = requests.get(f"{TRAFFIC_HOST}/state", timeout=30)
-    resp.raise_for_status()
-    return resp.json()
-
-
-# ─── LLM Agent ────────────────────────────────────────────────────────────────
-
-SYSTEM_PROMPT = """You are an expert traffic signal controller.
-
-Your goal is to minimize vehicle wait times and maximize throughput at urban intersections.
-
-At each step you receive observations about queue lengths and current signal phases.
-You must return a JSON object with phase_assignments mapping each intersection_id to a phase_id.
-
-Phase IDs:
-  0 = North-South GREEN  (vehicles on N/S can go)
-  1 = North-South YELLOW (transition — brief)
-  2 = East-West  GREEN   (vehicles on E/W can go)
-  3 = East-West  YELLOW  (transition — brief)
-  4 = ALL RED            (pedestrian crossing only)
-
-Strategy guidelines:
-- Give green to the direction with longer queues
-- Use phase 4 (ALL RED) when pedestrian_demand is True
-- If emergency_vehicle_present, immediately give green to emergency_vehicle_direction axis
-- Avoid switching phases every tick (causes oscillation penalty)
-- For arterial corridors, try to coordinate all intersections on same axis (green wave)
-
-Respond ONLY with valid JSON like:
-{"phase_assignments": {"I0": 0, "I1": 2}}
-
-No explanation, no markdown, just the JSON.
-"""
-
-def build_user_prompt(obs: Dict[str, Any]) -> str:
-    intersections = obs.get("observation", {}).get("intersections", [])
-    lines = [
-        f"Step {obs.get('observation', {}).get('step_number', '?')} | "
-        f"Time: {obs.get('observation', {}).get('time_of_day', '?')} | "
-        f"Total waiting: {obs.get('observation', {}).get('total_vehicles_waiting', 0)}"
-    ]
-    for i in intersections:
-        lines.append(
-            f"\nIntersection {i['intersection_id']}:"
-            f"\n  Phase: {i['current_phase']} (held {i['phase_time_elapsed']} ticks)"
-            f"\n  Queues — N:{i['queue_north']} S:{i['queue_south']} "
-            f"E:{i['queue_east']} W:{i['queue_west']}"
-            f"\n  Emergency: {i['emergency_vehicle_present']} "
-            f"({i.get('emergency_vehicle_direction', 'none')})"
-            f"\n  Pedestrian demand: {i['pedestrian_demand']}"
-        )
-    return "\n".join(lines)
-
-
-def get_llm_action(obs_result: Dict[str, Any], task_id: str) -> Dict[str, int]:
-    """Query LLM for phase assignments. Falls back to heuristic on error."""
+def env_reset(task_id):
     try:
-        user_msg = build_user_prompt(obs_result)
+        r = requests.post(
+            f"{TRAFFIC_HOST}/reset",
+            json={"task_id": task_id},
+            timeout=60
+        )
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        print(f"[ERROR] reset failed: {e}", flush=True)
+        return None
+
+def env_step(phase_assignments, task_id):
+    try:
+        r = requests.post(
+            f"{TRAFFIC_HOST}/step",
+            json={"phase_assignments": phase_assignments, "task_id": task_id},
+            timeout=60
+        )
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        print(f"[ERROR] step failed: {e}", flush=True)
+        return None
+
+# ─── Heuristic agent ─────────────────────────────────────────────────────────
+
+def heuristic_action(obs_result):
+    try:
+        intersections = obs_result.get("observation", {}).get("intersections", [])
+        phases = {}
+        for i in intersections:
+            iid = i["intersection_id"]
+            if i.get("emergency_vehicle_present"):
+                d = i.get("emergency_vehicle_direction", "N")
+                phases[iid] = 0 if d in ["N", "S"] else 2
+            elif i.get("pedestrian_demand"):
+                phases[iid] = 4
+            else:
+                ns = i["queue_north"] + i["queue_south"]
+                ew = i["queue_east"] + i["queue_west"]
+                phases[iid] = 0 if ns >= ew else 2
+        return phases
+    except Exception:
+        return {}
+
+# ─── LLM agent ───────────────────────────────────────────────────────────────
+
+def get_llm_action(obs_result, task_id):
+    try:
+        from openai import OpenAI
+        client = OpenAI(api_key=HF_TOKEN, base_url=API_BASE_URL)
+
+        intersections = obs_result.get("observation", {}).get("intersections", [])
+        lines = [f"Task: {task_id}"]
+        for i in intersections:
+            lines.append(
+                f"Intersection {i['intersection_id']}: "
+                f"phase={i['current_phase']} "
+                f"queues N={i['queue_north']} S={i['queue_south']} "
+                f"E={i['queue_east']} W={i['queue_west']} "
+                f"emergency={i['emergency_vehicle_present']} "
+                f"ped={i['pedestrian_demand']}"
+            )
+
+        system = (
+            "You are a traffic signal controller. "
+            "Return ONLY a JSON object like {\"phase_assignments\": {\"I0\": 0}}. "
+            "Phase 0=NS_GREEN, 2=EW_GREEN, 4=ALL_RED. "
+            "Give green to direction with longer queue. "
+            "Use phase 4 if pedestrian_demand=True. "
+            "Use phase 0 or 2 for emergency vehicle direction."
+        )
+
         response = client.chat.completions.create(
             model=MODEL_NAME,
             messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_msg},
+                {"role": "system", "content": system},
+                {"role": "user",   "content": "\n".join(lines)},
             ],
             temperature=0.0,
-            max_tokens=200,
+            max_tokens=150,
         )
         raw = response.choices[0].message.content.strip()
-        # Strip markdown if present
         raw = raw.replace("```json", "").replace("```", "").strip()
         parsed = json.loads(raw)
-        return parsed.get("phase_assignments", {})
+        return parsed.get("phase_assignments", heuristic_action(obs_result))
     except Exception as e:
-        # Fallback: heuristic
+        print(f"[WARN] LLM action failed ({e}), using heuristic", flush=True)
         return heuristic_action(obs_result)
 
+# ─── Episode runner ───────────────────────────────────────────────────────────
 
-def heuristic_action(obs_result: Dict[str, Any]) -> Dict[str, int]:
-    """
-    Simple heuristic: give green to direction with most vehicles waiting.
-    Emergency preemption included.
-    """
-    intersections = obs_result.get("observation", {}).get("intersections", [])
-    phases = {}
-    for i in intersections:
-        iid = i["intersection_id"]
-
-        # Emergency preemption
-        if i.get("emergency_vehicle_present"):
-            direction = i.get("emergency_vehicle_direction", "N")
-            phases[iid] = 0 if direction in ["N", "S"] else 2
-            continue
-
-        # Pedestrian phase
-        if i.get("pedestrian_demand"):
-            phases[iid] = 4
-            continue
-
-        # Longest queue wins
-        ns_queue = i["queue_north"] + i["queue_south"]
-        ew_queue = i["queue_east"] + i["queue_west"]
-        phases[iid] = 0 if ns_queue >= ew_queue else 2
-
-    return phases
-
-
-# ─── Structured Logging ───────────────────────────────────────────────────────
-
-def log_start(task_id: str, model: str):
-    print(json.dumps({
-        "type": "START",
-        "task_id": task_id,
-        "model": model,
-        "timestamp": time.time(),
-    }))
-    sys.stdout.flush()
-
-def log_step(task_id: str, step: int, reward: float, done: bool,
-             action: Dict, info: Dict):
-    print(json.dumps({
-        "type": "STEP",
-        "task_id": task_id,
-        "step": step,
-        "reward": reward,
-        "done": done,
-        "action": action,
-        "info": info,
-    }))
-    sys.stdout.flush()
-
-def log_end(task_id: str, total_reward: float, final_score: float,
-            steps: int, elapsed: float):
-    print(json.dumps({
-        "type": "END",
-        "task_id": task_id,
-        "total_reward": round(total_reward, 4),
-        "final_score": round(final_score, 4),
-        "steps": steps,
-        "elapsed_seconds": round(elapsed, 2),
-    }))
-    sys.stdout.flush()
-
-
-# ─── Episode Runner ───────────────────────────────────────────────────────────
-
-def run_episode(task_id: str, use_llm: bool = True) -> Dict[str, Any]:
-    """Run one complete episode and return results."""
-    max_steps = TASK_MAX_STEPS[task_id]
-    t0 = time.time()
-
-    log_start(task_id, MODEL_NAME)
-
-    # Reset
-    obs_result = env_reset(task_id)
+def run_episode(task_id):
+    max_steps   = TASK_MAX_STEPS[task_id]
+    use_llm     = bool(HF_TOKEN)
+    t0          = time.time()
     total_reward = 0.0
-    final_score = 0.0
-    step = 0
+    final_score  = 0.0
+    step         = 0
+
+    log_start(task_id)
+
+    obs_result = env_reset(task_id)
+    if obs_result is None:
+        log_end(task_id, 0.0, 0.0, 0, time.time() - t0)
+        return {"task_id": task_id, "final_score": 0.0, "total_reward": 0.0, "steps": 0}
 
     for step in range(1, max_steps + 1):
-        # Get action
-        if use_llm and HF_TOKEN:
-            phase_assignments = get_llm_action(obs_result, task_id)
-        else:
-            phase_assignments = heuristic_action(obs_result)
+        try:
+            if use_llm:
+                phase_assignments = get_llm_action(obs_result, task_id)
+            else:
+                phase_assignments = heuristic_action(obs_result)
 
-        # Step
-        result = env_step(phase_assignments, task_id)
-        reward = result.get("reward", 0.0)
-        done = result.get("done", False)
-        info = result.get("info", {})
-        total_reward += reward
+            if not phase_assignments:
+                phase_assignments = heuristic_action(obs_result)
 
-        log_step(task_id, step, reward, done, phase_assignments, info)
+            result = env_step(phase_assignments, task_id)
+            if result is None:
+                break
 
-        obs_result = result
+            reward = float(result.get("reward", 0.0))
+            done   = bool(result.get("done", False))
+            info   = result.get("info", {})
+            total_reward += reward
 
-        if done:
-            final_score = info.get("final_score", 0.0)
-            break
+            log_step(task_id, step, reward, done, phase_assignments, info)
+
+            obs_result = result
+
+            if done:
+                final_score = float(info.get("final_score", 0.0))
+                break
+
+        except Exception as e:
+            print(f"[WARN] step {step} error: {e}", flush=True)
+            continue
 
     elapsed = time.time() - t0
     log_end(task_id, total_reward, final_score, step, elapsed)
 
     return {
-        "task_id": task_id,
+        "task_id":      task_id,
+        "final_score":  final_score,
         "total_reward": round(total_reward, 4),
-        "final_score": final_score,
-        "steps": step,
-        "elapsed": round(elapsed, 2),
+        "steps":        step,
     }
-
 
 # ─── Main ─────────────────────────────────────────────────────────────────────
 
 def main():
-    print("=" * 60)
-    print("Traffic Signal Control — OpenEnv Baseline")
-    print(f"Model : {MODEL_NAME}")
-    print(f"Host  : {TRAFFIC_HOST}")
-    print(f"Tasks : {TASKS}")
-    print("=" * 60)
-    print()
+    print(f"Traffic Signal Control — OpenEnv Baseline", flush=True)
+    print(f"Model : {MODEL_NAME}", flush=True)
+    print(f"Host  : {TRAFFIC_HOST}", flush=True)
 
-    # Check environment is up
-    try:
-        resp = requests.get(f"{TRAFFIC_HOST}/health", timeout=10)
-        resp.raise_for_status()
-        print(f"[OK] Environment health: {resp.json()}\n")
-    except Exception as e:
-        print(f"[ERROR] Cannot reach environment at {TRAFFIC_HOST}: {e}")
-        print("  Start the server: cd src && uvicorn envs.traffic_signal_env.server.app:app --port 8000")
+    # Wait for environment to be ready
+    for attempt in range(10):
+        try:
+            r = requests.get(f"{TRAFFIC_HOST}/health", timeout=30)
+            if r.status_code == 200:
+                print(f"[OK] Environment healthy: {r.json()}", flush=True)
+                break
+        except Exception as e:
+            print(f"[WAIT] attempt {attempt+1}/10: {e}", flush=True)
+            time.sleep(10)
+    else:
+        print("[ERROR] Environment not reachable after 10 attempts", flush=True)
         sys.exit(1)
-
-    use_llm = bool(HF_TOKEN)
-    if not use_llm:
-        print("[WARN] No HF_TOKEN/OPENAI_API_KEY found. Using heuristic baseline.\n")
 
     results = []
     for task_id in TASKS:
-        print(f"\n{'─'*60}")
-        print(f"Running task: {task_id}")
-        print(f"{'─'*60}")
+        print(f"\n--- Running task: {task_id} ---", flush=True)
         try:
-            result = run_episode(task_id, use_llm=use_llm)
+            result = run_episode(task_id)
             results.append(result)
-            print(f"\n  ✓ Score: {result['final_score']:.4f} | "
-                  f"Reward: {result['total_reward']:.2f} | "
-                  f"Steps: {result['steps']}")
+            print(f"Score: {result['final_score']:.4f}", flush=True)
         except Exception as e:
-            print(f"  ✗ Task failed: {e}")
-            results.append({"task_id": task_id, "final_score": 0.0, "error": str(e)})
+            print(f"[ERROR] Task {task_id} failed: {e}", flush=True)
+            results.append({"task_id": task_id, "final_score": 0.0,
+                            "total_reward": 0.0, "steps": 0})
 
-    print(f"\n{'='*60}")
-    print("FINAL SCORES")
-    print(f"{'='*60}")
+    avg = sum(r["final_score"] for r in results) / max(1, len(results))
+
+    print(f"\n{'='*50}", flush=True)
     for r in results:
-        score = r.get("final_score", 0.0)
-        bar = "█" * int(score * 30)
-        print(f"  {r['task_id']:35s} [{bar:<30}] {score:.4f}")
+        print(f"  {r['task_id']:35s} {r['final_score']:.4f}", flush=True)
+    print(f"  Average: {avg:.4f}", flush=True)
 
-    avg_score = sum(r.get("final_score", 0.0) for r in results) / max(1, len(results))
-    print(f"\n  Average score: {avg_score:.4f}")
-    print(f"{'='*60}\n")
-
-    # Machine-readable summary
-    print(json.dumps({
-        "type": "SUMMARY",
-        "results": results,
-        "average_score": round(avg_score, 4),
-        "model": MODEL_NAME,
-    }))
+    log({"type": "SUMMARY", "results": results,
+         "average_score": round(avg, 4), "model": MODEL_NAME})
 
 
 if __name__ == "__main__":
