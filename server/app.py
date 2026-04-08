@@ -1,10 +1,11 @@
-"""
-Root-level server/app.py — required by openenv validate.
-Re-exports the FastAPI app from the environment package.
-"""
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from envs.traffic_signal_env.server.app import app  # noqa: F401
+from envs.traffic_signal_env.server.app import app
+import uvicorn
 
-__all__ = ["app"]
+def main():
+    uvicorn.run(app, host='0.0.0.0', port=7860)
+
+if __name__ == '__main__':
+    main()
