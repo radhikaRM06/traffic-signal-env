@@ -1,4 +1,5 @@
 ---
+<<<<<<< HEAD
 title: Traffic Signal Control — OpenEnv
 emoji: 🚦
 colorFrom: green
@@ -290,3 +291,16 @@ The simulation is calibrated against real-world traffic engineering parameters (
 ## 📝 License
 
 MIT License
+=======
+title: Traffic Signal Env
+emoji: 👁
+colorFrom: indigo
+colorTo: gray
+sdk: docker
+pinned: false
+license: mit
+short_description: 'AI-based Traffic signal simulation environment '
+---
+
+Check out the configuration reference at https://huggingface.co/docs/hub/spaces-config-reference
+>>>>>>> 86be67a5c79623d401a0dfdb9926cc33a2f2ca9a
