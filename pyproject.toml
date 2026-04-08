@@ -9,17 +9,18 @@ description = "Real-world traffic signal control environment for OpenEnv"
 readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "MIT"}
-keywords = ["openenv", "reinforcement-learning", "traffic", "urban-mobility"]
+keywords = ["openenv", "reinforcement-learning", "traffic"]
 dependencies = [
     "fastapi>=0.115.5",
     "uvicorn[standard]>=0.32.1",
     "pydantic>=2.10.3",
     "requests>=2.32.3",
     "openai>=1.57.0",
+    "openenv-core>=0.2.0",
 ]
 
-[project.optional-dependencies]
-dev = ["pytest", "httpx"]
+[project.scripts]
+server = "envs.traffic_signal_env.server.app:app"
 
 [tool.setuptools.packages.find]
 where = ["src"]

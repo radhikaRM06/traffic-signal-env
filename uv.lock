@@ -1,0 +1,25 @@
+version = 1
+requires-python = ">=3.11"
+
+[[package]]
+name = "traffic-signal-env"
+version = "1.0.0"
+source = { editable = "." }
+dependencies = [
+    { name = "fastapi" },
+    { name = "uvicorn" },
+    { name = "pydantic" },
+    { name = "requests" },
+    { name = "openai" },
+    { name = "openenv-core" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "fastapi", specifier = ">=0.115.5" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.32.1" },
+    { name = "pydantic", specifier = ">=2.10.3" },
+    { name = "requests", specifier = ">=2.32.3" },
+    { name = "openai", specifier = ">=1.57.0" },
+    { name = "openenv-core", specifier = ">=0.2.0" },
+]
