@@ -29,23 +29,16 @@ TASK_MAX_STEPS = {
     "urban_grid_hard":          200,
 }
 
-# ─── Logging ──────────────────────────────────────────────────────────────────
-
-def log(obj):
-    print(json.dumps(obj), flush=True)
+# ─── Structured Logging (text format) ────────────────────────────────────────
 
 def log_start(task_id):
-    log({"type": "START", "task_id": task_id, "model": MODEL_NAME, "timestamp": time.time()})
+    print(f"[START] task={task_id} model={MODEL_NAME}", flush=True)
 
 def log_step(task_id, step, reward, done, action, info):
-    log({"type": "STEP", "task_id": task_id, "step": step,
-         "reward": reward, "done": done, "action": action, "info": info})
+    print(f"[STEP] task={task_id} step={step} reward={round(reward,4)} done={done} action={json.dumps(action)} info={json.dumps(info)}", flush=True)
 
 def log_end(task_id, total_reward, final_score, steps, elapsed):
-    log({"type": "END", "task_id": task_id,
-         "total_reward": round(total_reward, 4),
-         "final_score":  round(final_score, 4),
-         "steps": steps, "elapsed_seconds": round(elapsed, 2)})
+    print(f"[END] task={task_id} score={round(final_score,4)} total_reward={round(total_reward,4)} steps={steps} elapsed={round(elapsed,2)}", flush=True)
 
 # ─── Environment HTTP calls ───────────────────────────────────────────────────
 
@@ -119,9 +112,7 @@ def get_llm_action(obs_result, task_id):
             "You are a traffic signal controller. "
             "Return ONLY a JSON object like {\"phase_assignments\": {\"I0\": 0}}. "
             "Phase 0=NS_GREEN, 2=EW_GREEN, 4=ALL_RED. "
-            "Give green to direction with longer queue. "
-            "Use phase 4 if pedestrian_demand=True. "
-            "Use phase 0 or 2 for emergency vehicle direction."
+            "Give green to direction with longer queue."
         )
 
         response = client.chat.completions.create(
@@ -144,9 +135,9 @@ def get_llm_action(obs_result, task_id):
 # ─── Episode runner ───────────────────────────────────────────────────────────
 
 def run_episode(task_id):
-    max_steps   = TASK_MAX_STEPS[task_id]
-    use_llm     = bool(HF_TOKEN)
-    t0          = time.time()
+    max_steps    = TASK_MAX_STEPS[task_id]
+    use_llm      = bool(HF_TOKEN)
+    t0           = time.time()
     total_reward = 0.0
     final_score  = 0.0
     step         = 0
@@ -202,16 +193,15 @@ def run_episode(task_id):
 # ─── Main ─────────────────────────────────────────────────────────────────────
 
 def main():
-    print(f"Traffic Signal Control — OpenEnv Baseline", flush=True)
-    print(f"Model : {MODEL_NAME}", flush=True)
-    print(f"Host  : {TRAFFIC_HOST}", flush=True)
+    print(f"[INFO] Traffic Signal Control — OpenEnv Baseline", flush=True)
+    print(f"[INFO] Model={MODEL_NAME} Host={TRAFFIC_HOST}", flush=True)
 
     # Wait for environment to be ready
     for attempt in range(10):
         try:
             r = requests.get(f"{TRAFFIC_HOST}/health", timeout=30)
             if r.status_code == 200:
-                print(f"[OK] Environment healthy: {r.json()}", flush=True)
+                print(f"[INFO] Environment healthy: {r.json()}", flush=True)
                 break
         except Exception as e:
             print(f"[WAIT] attempt {attempt+1}/10: {e}", flush=True)
@@ -222,25 +212,19 @@ def main():
 
     results = []
     for task_id in TASKS:
-        print(f"\n--- Running task: {task_id} ---", flush=True)
+        print(f"[INFO] Starting task: {task_id}", flush=True)
         try:
             result = run_episode(task_id)
             results.append(result)
-            print(f"Score: {result['final_score']:.4f}", flush=True)
+            print(f"[INFO] Completed {task_id} score={result['final_score']:.4f}", flush=True)
         except Exception as e:
             print(f"[ERROR] Task {task_id} failed: {e}", flush=True)
             results.append({"task_id": task_id, "final_score": 0.0,
                             "total_reward": 0.0, "steps": 0})
+            log_end(task_id, 0.0, 0.0, 0, 0.0)
 
     avg = sum(r["final_score"] for r in results) / max(1, len(results))
-
-    print(f"\n{'='*50}", flush=True)
-    for r in results:
-        print(f"  {r['task_id']:35s} {r['final_score']:.4f}", flush=True)
-    print(f"  Average: {avg:.4f}", flush=True)
-
-    log({"type": "SUMMARY", "results": results,
-         "average_score": round(avg, 4), "model": MODEL_NAME})
+    print(f"[SUMMARY] average_score={round(avg,4)} model={MODEL_NAME}", flush=True)
 
 
 if __name__ == "__main__":
