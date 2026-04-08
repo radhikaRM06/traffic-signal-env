@@ -1,0 +1,57 @@
+name: traffic-signal-control
+version: "1.0.0"
+description: >
+  A real-world traffic signal control environment where an AI agent learns
+  to manage intersection signal timings to minimize vehicle wait times,
+  reduce congestion, and optimize traffic flow across an urban grid.
+author: traffic-signal-openenv
+tags:
+  - openenv
+  - traffic
+  - urban-mobility
+  - real-world
+  - reinforcement-learning
+
+environment:
+  type: traffic_signal_control
+  action_space: discrete
+  observation_space: structured
+  episode_steps_max: 200
+
+tasks:
+  - id: single_intersection_easy
+    name: "Single Intersection Control"
+    difficulty: easy
+    description: >
+      Control a single 4-way intersection with moderate traffic.
+      Minimize average vehicle wait time over a 100-step episode.
+    max_steps: 100
+    success_threshold: 0.6
+
+  - id: arterial_corridor_medium
+    name: "Arterial Corridor Optimization"
+    difficulty: medium
+    description: >
+      Coordinate 3 sequential intersections along a main arterial road.
+      Create green waves and minimize total system delay.
+    max_steps: 150
+    success_threshold: 0.65
+
+  - id: urban_grid_hard
+    name: "Urban Grid Network Control"
+    difficulty: hard
+    description: >
+      Manage a 2x2 grid of 4 interconnected intersections with rush-hour
+      demand patterns, emergency vehicle preemption, and pedestrian phases.
+    max_steps: 200
+    success_threshold: 0.7
+
+api:
+  reset: POST /reset
+  step: POST /step
+  state: GET /state
+  health: GET /health
+
+docker:
+  port: 8000
+  base_image: python:3.11-slim
