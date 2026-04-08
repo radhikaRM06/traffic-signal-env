@@ -3,7 +3,7 @@ FROM python:3.11-slim
 LABEL description="Traffic Signal Control — OpenEnv Environment"
 LABEL version="1.0.0"
 
-RUN apt-get update && apt-get install -y --no-install-recommends curl \
+RUN apt-get update && apt-get install -y --no-install-recommends curl git \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -11,10 +11,17 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Install openenv-core from PyPI or github
+RUN pip install --no-cache-dir openenv-core || \
+    pip install --no-cache-dir git+https://github.com/meta-pytorch/OpenEnv.git || \
+    echo "openenv-core not available, continuing without it"
+
 COPY src/ ./src/
+COPY server/ ./server/
 COPY app.py .
 COPY openenv.yaml .
 COPY inference.py .
+COPY pyproject.toml .
 COPY README.md .
 
 ENV TRAFFIC_TASK=single_intersection_easy

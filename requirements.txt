@@ -5,4 +5,3 @@ requests==2.32.3
 openai==1.57.0
 httpx==0.28.1
 python-multipart==0.0.20
-openenv-core>=0.2.0
