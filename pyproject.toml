@@ -5,11 +5,11 @@ build-backend = "setuptools.backends.legacy:build"
 [project]
 name = "traffic-signal-env"
 version = "1.0.0"
-description = "Real-world traffic signal control environment for OpenEnv"
+description = "Real-world traffic signal control environment for OpenEnv RL agents"
 readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "MIT"}
-keywords = ["openenv", "reinforcement-learning", "traffic"]
+keywords = ["openenv", "reinforcement-learning", "traffic", "urban-mobility"]
 dependencies = [
     "fastapi>=0.115.5",
     "uvicorn[standard]>=0.32.1",
@@ -23,12 +23,13 @@ dependencies = [
 server = "server.app:main"
 
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["."]
+include = ["server*"]
 
 [tool.openenv]
 name = "traffic-signal-control"
 version = "1.0.0"
-entry_point = "app:app"
+entry_point = "server.app:app"
 tasks = [
     "single_intersection_easy",
     "arterial_corridor_medium",
