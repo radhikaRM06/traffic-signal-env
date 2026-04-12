@@ -54,7 +54,9 @@ def grade_single_intersection(episode_stats: Dict[str, Any]) -> float:
         0.25 * throughput_score +
         0.15 * emergency_score
     )
-    return round(max(0.0, min(1.0, score)), 4)
+    epsilon = 1e-6
+    score = max(epsilon, min(1 - epsilon, score))
+    return round(score, 4)
 
 
 # ─── Task 2: Arterial Corridor (Medium) ───────────────────────────────────────
@@ -89,7 +91,9 @@ def grade_arterial_corridor(episode_stats: Dict[str, Any]) -> float:
         0.30 * throughput_score +
         0.20 * coordination_score
     )
-    return round(max(0.0, min(1.0, score)), 4)
+    epsilon = 1e-6
+    score = max(epsilon, min(1 - epsilon, score))
+    return round(score, 4)
 
 
 # ─── Task 3: Urban Grid (Hard) ────────────────────────────────────────────────
@@ -147,7 +151,9 @@ def grade_urban_grid(episode_stats: Dict[str, Any]) -> float:
         0.10 * pedestrian_score +
         0.05 * stability_score
     )
-    return round(max(0.0, min(1.0, score)), 4)
+    epsilon = 1e-6
+    score = max(epsilon, min(1 - epsilon, score))
+    return round(score, 4)
 
 
 # ─── Router ───────────────────────────────────────────────────────────────────
